@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // USER DASHBOARD - Main Dashboard for End Users
@@ -1091,57 +1092,264 @@ class _UserDashboardState extends State<UserDashboard> {
           ],
         ),
         const SizedBox(height: 16),
-        // Tickets Container
-        Container(
-          padding: EdgeInsets.all(emptyStatePadding),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.06),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
+        // Tickets Container with StreamBuilder
+        StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('tickets')
+              .where('createdBy', isEqualTo: user?.uid)
+              .snapshots(),
+          builder: (context, snapshot) {
+            // Loading state
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return Container(
+                padding: EdgeInsets.all(emptyStatePadding),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.06),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: const Center(
+                  child: CircularProgressIndicator(color: Color(0xFF0066FF)),
+                ),
+              );
+            }
+
+            // Error state
+            if (snapshot.hasError) {
+              return Container(
+                padding: EdgeInsets.all(emptyStatePadding),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.06),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: Text(
+                    'Error loading tickets',
+                    style: TextStyle(
+                      fontSize: noTicketsSize,
+                      color: const Color(0xFF64748B),
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            // Empty state
+            if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+              return Container(
+                padding: EdgeInsets.all(emptyStatePadding),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.06),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: EdgeInsets.all(isMobile ? 16 : 20),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8F9FA),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.confirmation_number_outlined,
+                          size: emptyStateIconSize,
+                          color: Colors.black.withOpacity(0.3),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      Text(
+                        'No tickets yet',
+                        style: TextStyle(
+                          fontSize: noTicketsSize,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF1A1A1A),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Create your first ticket to get started',
+                        style: TextStyle(
+                          fontSize: descriptionSize,
+                          color: const Color(0xFF64748B),
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            // Display tickets
+            final tickets = snapshot.data!.docs;
+
+            // Sort tickets by createdAt in Dart (descending)
+            tickets.sort((a, b) {
+              final aTime =
+                  (a.data() as Map<String, dynamic>)['createdAt'] as Timestamp?;
+              final bTime =
+                  (b.data() as Map<String, dynamic>)['createdAt'] as Timestamp?;
+              if (aTime == null) return 1;
+              if (bTime == null) return -1;
+              return bTime.compareTo(aTime);
+            });
+
+            // Limit to 5 most recent
+            final displayTickets = tickets.take(5).toList();
+
+            return Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.06),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
               ),
-            ],
-          ),
-          child: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  padding: EdgeInsets.all(isMobile ? 16 : 20),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8F9FA),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.confirmation_number_outlined,
-                    size: emptyStateIconSize,
-                    color: Colors.black.withOpacity(0.3),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  'No tickets yet',
-                  style: TextStyle(
-                    fontSize: noTicketsSize,
-                    fontWeight: FontWeight.w600,
-                    color: const Color(0xFF1A1A1A),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Create your first ticket to get started',
-                  style: TextStyle(
-                    fontSize: descriptionSize,
-                    color: const Color(0xFF64748B),
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-          ),
+              child: ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: displayTickets.length,
+                separatorBuilder: (context, index) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final doc = displayTickets[index];
+                  final data = doc.data() as Map<String, dynamic>;
+                  final title = data['title'] as String? ?? 'Untitled';
+                  final status = data['status'] as String? ?? 'Open';
+                  final category = data['category'] as String? ?? 'General';
+                  final createdAt = data['createdAt'] as Timestamp?;
+
+                  // Format date
+                  String formattedDate = 'Just now';
+                  if (createdAt != null) {
+                    final date = createdAt.toDate();
+                    formattedDate = DateFormat('MMM d, y').format(date);
+                  }
+
+                  // Status badge colors
+                  Color statusColor;
+                  Color statusBgColor;
+                  switch (status) {
+                    case 'Open':
+                      statusColor = const Color(0xFF0066FF);
+                      statusBgColor = const Color(0xFFE3F2FF);
+                      break;
+                    case 'In Progress':
+                      statusColor = const Color(0xFFF59E0B);
+                      statusBgColor = const Color(0xFFFFF4E6);
+                      break;
+                    case 'Resolved':
+                      statusColor = const Color(0xFF10B981);
+                      statusBgColor = const Color(0xFFE8F5E9);
+                      break;
+                    default:
+                      statusColor = const Color(0xFF64748B);
+                      statusBgColor = const Color(0xFFF8F9FA);
+                  }
+
+                  return ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    onTap: () {
+                      Navigator.pushNamed(
+                        context,
+                        '/ticket-detail',
+                        arguments: doc.id,
+                      );
+                    },
+                    title: Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF1A1A1A),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Row(
+                        children: [
+                          // Status badge
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: statusBgColor,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              status,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: statusColor,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          // Category
+                          Text(
+                            category,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: Color(0xFF64748B),
+                            ),
+                          ),
+                          const Text(
+                            ' • ',
+                            style: TextStyle(color: Color(0xFF64748B)),
+                          ),
+                          // Date
+                          Text(
+                            formattedDate,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: Color(0xFF64748B),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    trailing: const Icon(
+                      Icons.chevron_right,
+                      color: Color(0xFF64748B),
+                    ),
+                  );
+                },
+              ),
+            );
+          },
         ),
       ],
     );

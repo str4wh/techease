@@ -116,8 +116,31 @@ class _TicketDetailPageState extends State<TicketDetailPage> {
             children: [
               IconButton(
                 icon: const Icon(Icons.arrow_back),
-                onPressed: () =>
-                    Navigator.pushReplacementNamed(context, '/dashboard'),
+                onPressed: () async {
+                  // Check user role and navigate to appropriate dashboard
+                  try {
+                    final doc = await FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(user?.uid)
+                        .get();
+                    final role = doc.data()?['role'] as String?;
+                    if (context.mounted) {
+                      if (role == 'engineer') {
+                        Navigator.pushReplacementNamed(
+                          context,
+                          '/engineer-dashboard',
+                        );
+                      } else {
+                        Navigator.pushReplacementNamed(context, '/dashboard');
+                      }
+                    }
+                  } catch (e) {
+                    // Default to user dashboard on error
+                    if (context.mounted) {
+                      Navigator.pushReplacementNamed(context, '/dashboard');
+                    }
+                  }
+                },
                 color: const Color(0xFF1A1A1A),
               ),
               const SizedBox(width: 8),
@@ -557,6 +580,7 @@ class _TicketDetailPageState extends State<TicketDetailPage> {
                 'timestamp': Timestamp.fromDate(DateTime.now()),
               },
             ]),
+            'status': 'Resolved',
             'updatedAt': FieldValue.serverTimestamp(),
           });
 

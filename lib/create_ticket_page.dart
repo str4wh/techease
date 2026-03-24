@@ -1264,17 +1264,7 @@ class _CreateTicketPageState extends State<CreateTicketPage> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: () {
-                  // Show success message and go back to dashboard
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Great! Your issue has been resolved.'),
-                      backgroundColor: Color(0xFF10B981),
-                      duration: Duration(seconds: 3),
-                    ),
-                  );
-                  Navigator.pushReplacementNamed(context, '/dashboard');
-                },
+                onPressed: _resolveAndExit,
                 icon: const Icon(Icons.check_circle, size: 20),
                 label: const Text('Issue Resolved'),
                 style: ElevatedButton.styleFrom(
@@ -1337,17 +1327,7 @@ class _CreateTicketPageState extends State<CreateTicketPage> {
               children: [
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: () {
-                      // Show success message and go back to dashboard
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Great! Your issue has been resolved.'),
-                          backgroundColor: Color(0xFF10B981),
-                          duration: Duration(seconds: 3),
-                        ),
-                      );
-                      Navigator.pushReplacementNamed(context, '/dashboard');
-                    },
+                    onPressed: _resolveAndExit,
                     icon: const Icon(Icons.check_circle, size: 20),
                     label: const Text('Issue Resolved'),
                     style: ElevatedButton.styleFrom(
@@ -1654,6 +1634,52 @@ class _CreateTicketPageState extends State<CreateTicketPage> {
         ),
       ],
     );
+  }
+
+  // Resolve issue via AI and exit to dashboard
+  Future<void> _resolveAndExit() async {
+    try {
+      await FirebaseFirestore.instance.collection('tickets').add({
+        'title': _title,
+        'category': _category,
+        'priority': _priority,
+        'description': _description,
+        'status': 'Resolved',
+        'createdBy': user?.uid,
+        'createdByName': user?.displayName ?? 'Unknown User',
+        'createdByEmail': user?.email ?? '',
+        'aiSolutions': _aiSolutions ?? '',
+        'aiNextSteps': _aiNextSteps ?? '',
+        'aiEstimatedTime': _aiEstimatedTime ?? '',
+        'assignedTo': null,
+        'assignedToName': null,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+        'timeline': [
+          {
+            'action': 'Ticket created and resolved via AI',
+            'by': user?.displayName ?? 'Unknown User',
+            'timestamp': Timestamp.fromDate(DateTime.now()),
+          },
+        ],
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Great! Your issue has been resolved.'),
+            backgroundColor: Color(0xFF10B981),
+            duration: Duration(seconds: 3),
+          ),
+        );
+        Navigator.pushReplacementNamed(context, '/dashboard');
+      }
+    } catch (e) {
+      // Navigate to dashboard even on failure
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, '/dashboard');
+      }
+    }
   }
 
   // Submit Ticket to Firestore
