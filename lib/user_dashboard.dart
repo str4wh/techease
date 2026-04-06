@@ -131,38 +131,31 @@ class _UserDashboardState extends State<UserDashboard> {
           const Divider(),
           ListTile(
             leading: const Icon(Icons.notifications_outlined),
+            // Feature Added: drawer notifications tap now opens the panel
             title: const Text('Notifications'),
-            trailing: Container(
-              padding: const EdgeInsets.all(6),
-              decoration: const BoxDecoration(
-                color: Color(0xFFEF4444),
-                shape: BoxShape.circle,
-              ),
-              child: const Text(
-                '2',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
             onTap: () {
               Navigator.pop(context);
+              if (user != null) {
+                _showNotificationsPanel(context, user!.uid);
+              }
             },
           ),
+          // Feature Added: Profile navigation (was empty)
           ListTile(
             leading: const Icon(Icons.person_outline),
             title: const Text('Profile'),
             onTap: () {
               Navigator.pop(context);
+              Navigator.pushNamed(context, '/profile');
             },
           ),
+          // Feature Added: Settings navigation (was empty)
           ListTile(
             leading: const Icon(Icons.settings_outlined),
             title: const Text('Settings'),
             onTap: () {
               Navigator.pop(context);
+              Navigator.pushNamed(context, '/settings');
             },
           ),
           const Divider(),
@@ -265,43 +258,10 @@ class _UserDashboardState extends State<UserDashboard> {
             ),
           ],
           const Spacer(),
-          // Notification Bell
-          Stack(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.notifications_outlined),
-                onPressed: () {
-                  // Show notifications dropdown
-                  _showNotificationsMenu(context);
-                },
-                color: const Color(0xFF64748B),
-              ),
-              Positioned(
-                right: 8,
-                top: 8,
-                child: Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFEF4444),
-                    shape: BoxShape.circle,
-                  ),
-                  constraints: const BoxConstraints(
-                    minWidth: 16,
-                    minHeight: 16,
-                  ),
-                  child: const Text(
-                    '2',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ),
-            ],
-          ),
+          // Feature Added: Notifications Bell — real-time unread count
+          // from Firestore; badge disappears when all are read.
+          if (user != null)
+            _buildNotificationsBell(context, user!.uid),
           const SizedBox(width: 8),
           // User Profile Button
           PopupMenuButton<String>(
@@ -373,6 +333,7 @@ class _UserDashboardState extends State<UserDashboard> {
                 ),
               ),
               const PopupMenuDivider(),
+              // Feature Added: Profile navigation (was empty)
               PopupMenuItem(
                 child: const Row(
                   children: [
@@ -381,8 +342,9 @@ class _UserDashboardState extends State<UserDashboard> {
                     Text('Profile'),
                   ],
                 ),
-                onTap: () {},
+                onTap: () => Navigator.pushNamed(context, '/profile'),
               ),
+              // Feature Added: Settings navigation (was empty)
               PopupMenuItem(
                 child: const Row(
                   children: [
@@ -391,7 +353,7 @@ class _UserDashboardState extends State<UserDashboard> {
                     Text('Settings'),
                   ],
                 ),
-                onTap: () {},
+                onTap: () => Navigator.pushNamed(context, '/settings'),
               ),
               const PopupMenuDivider(),
               PopupMenuItem(
@@ -1355,44 +1317,232 @@ class _UserDashboardState extends State<UserDashboard> {
     );
   }
 
-  // Show Notifications Menu
-  void _showNotificationsMenu(BuildContext context) {
-    showMenu<dynamic>(
-      context: context,
-      position: RelativeRect.fromLTRB(
-        MediaQuery.of(context).size.width - 300,
-        60,
-        20,
-        0,
-      ),
-      items: <PopupMenuEntry<dynamic>>[
-        const PopupMenuItem(
-          enabled: false,
-          child: Text(
-            'Notifications',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-          ),
-        ),
-        const PopupMenuDivider(),
-        PopupMenuItem(
-          child: const ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: Icon(Icons.info_outline, color: Color(0xFF0066FF)),
-            title: Text('Ticket #1234 updated'),
-            subtitle: Text('2 hours ago'),
-          ),
-          onTap: () {},
-        ),
-        PopupMenuItem(
-          child: const ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: Icon(Icons.check_circle_outline, color: Color(0xFF10B981)),
-            title: Text('Ticket resolved'),
-            subtitle: Text('5 hours ago'),
-          ),
-          onTap: () {},
-        ),
-      ],
+  // Feature Added: Notifications Bell — StreamBuilder badge driven by
+  // notifications/{uid}/items in Firestore. Badge hides when all are read.
+  Widget _buildNotificationsBell(BuildContext context, String uid) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('notifications')
+          .doc(uid)
+          .collection('items')
+          .where('isRead', isEqualTo: false)
+          .snapshots(),
+      builder: (context, snap) {
+        final unread = snap.data?.docs.length ?? 0;
+        return Stack(
+          children: [
+            IconButton(
+              icon: const Icon(Icons.notifications_outlined),
+              onPressed: () => _showNotificationsPanel(context, uid),
+              color: const Color(0xFF64748B),
+            ),
+            if (unread > 0)
+              Positioned(
+                right: 8,
+                top: 8,
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFEF4444),
+                    shape: BoxShape.circle,
+                  ),
+                  constraints:
+                      const BoxConstraints(minWidth: 16, minHeight: 16),
+                  child: Text(
+                    unread > 9 ? '9+' : '$unread',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
+  }
+
+  // Opens a bottom-sheet listing recent notifications with mark-as-read support
+  void _showNotificationsPanel(BuildContext context, String uid) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) {
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.5,
+          maxChildSize: 0.85,
+          builder: (_, controller) {
+            return Column(
+              children: [
+                // Drag handle
+                Container(
+                  margin: const EdgeInsets.only(top: 12, bottom: 4),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE5E7EB),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Notifications',
+                        style: TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      TextButton(
+                        onPressed: () async {
+                          // Mark all unread notifications as read
+                          final snap = await FirebaseFirestore.instance
+                              .collection('notifications')
+                              .doc(uid)
+                              .collection('items')
+                              .where('isRead', isEqualTo: false)
+                              .get();
+                          final batch =
+                              FirebaseFirestore.instance.batch();
+                          for (final d in snap.docs) {
+                            batch.update(
+                                d.reference, {'isRead': true});
+                          }
+                          await batch.commit();
+                        },
+                        child: const Text(
+                          'Mark all read',
+                          style: TextStyle(color: Color(0xFF0066FF)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance
+                        .collection('notifications')
+                        .doc(uid)
+                        .collection('items')
+                        .orderBy('createdAt', descending: true)
+                        .limit(30)
+                        .snapshots(),
+                    builder: (ctx, snap) {
+                      if (!snap.hasData || snap.data!.docs.isEmpty) {
+                        return const Center(
+                          child: Text(
+                            'No notifications yet.',
+                            style:
+                                TextStyle(color: Color(0xFF64748B)),
+                          ),
+                        );
+                      }
+                      return ListView.separated(
+                        controller: controller,
+                        itemCount: snap.data!.docs.length,
+                        separatorBuilder: (_, _) =>
+                            const Divider(height: 1),
+                        itemBuilder: (ctx, i) {
+                          final doc = snap.data!.docs[i];
+                          final data =
+                              doc.data() as Map<String, dynamic>;
+                          final isRead =
+                              data['isRead'] as bool? ?? false;
+                          final msg =
+                              data['message'] as String? ?? '';
+                          final ts =
+                              data['createdAt'] as Timestamp?;
+                          final timeStr = ts != null
+                              ? DateFormat('MMM d, h:mm a')
+                                  .format(ts.toDate())
+                              : '';
+                          return ListTile(
+                            tileColor: isRead
+                                ? null
+                                : const Color(0xFFEFF6FF),
+                            leading: CircleAvatar(
+                              backgroundColor: isRead
+                                  ? const Color(0xFFF3F4F6)
+                                  : const Color(0xFF0066FF)
+                                      .withValues(alpha: 0.1),
+                              child: Icon(
+                                _notifIcon(
+                                    data['type'] as String? ?? ''),
+                                size: 18,
+                                color: isRead
+                                    ? const Color(0xFF64748B)
+                                    : const Color(0xFF0066FF),
+                              ),
+                            ),
+                            title: Text(
+                              msg,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: isRead
+                                    ? FontWeight.normal
+                                    : FontWeight.w600,
+                              ),
+                            ),
+                            subtitle: Text(
+                              timeStr,
+                              style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Color(0xFF64748B)),
+                            ),
+                            onTap: () async {
+                              // Mark read and navigate to ticket
+                              await FirebaseFirestore.instance
+                                  .collection('notifications')
+                                  .doc(uid)
+                                  .collection('items')
+                                  .doc(doc.id)
+                                  .update({'isRead': true});
+                              final ticketId =
+                                  data['ticketId'] as String?;
+                              if (ticketId != null &&
+                                  context.mounted) {
+                                Navigator.pop(context);
+                                Navigator.pushNamed(
+                                  context,
+                                  '/ticket-detail',
+                                  arguments: ticketId,
+                                );
+                              }
+                            },
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Notification icon by type — mirrors engineer_dashboard convention
+  IconData _notifIcon(String type) {
+    switch (type) {
+      case 'status_changed':
+        return Icons.swap_horiz_rounded;
+      case 'assigned':
+        return Icons.person_add_outlined;
+      case 'note_added':
+        return Icons.note_outlined;
+      default:
+        return Icons.notifications_outlined;
+    }
   }
 }

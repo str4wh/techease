@@ -6,6 +6,10 @@ import 'user_dashboard.dart';
 import 'engineer_dashboard.dart';
 import 'create_ticket_page.dart';
 import 'ticket_detail_page.dart';
+// Feature Added: new pages registered as named routes
+import 'analytics_page.dart';
+import 'profile_page.dart';
+import 'settings_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -52,6 +56,10 @@ class MyApp extends StatelessWidget {
         '/dashboard': (context) => const UserDashboard(),
         '/engineer-dashboard': (context) => const EngineerDashboard(),
         '/create-ticket': (context) => const CreateTicketPage(),
+        // Feature Added: routes for new pages
+        '/analytics': (context) => const AnalyticsPage(),
+        '/profile': (context) => const ProfilePage(),
+        '/settings': (context) => const SettingsPage(),
       },
       onGenerateRoute: (settings) {
         if (settings.name == '/ticket-detail') {

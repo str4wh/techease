@@ -1,10 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+// package:web replaces file_picker for reliable file selection on Flutter Web.
+// FilePicker.platform.pickFiles() can silently return null on web because
+// browsers block file dialogs triggered from async contexts.  The browser's
+// native <input type="file"> element does not have this restriction.
+import 'package:web/web.dart' as web;
+import 'dart:js_interop';
+import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
+
+// Simple data holder for a file the user has picked before submitting.
+// Replaces PlatformFile (from file_picker) since we now use the browser's
+// native <input type="file"> element via package:web for reliability on web.
+class _AttachedFile {
+  final String name;
+  final Uint8List bytes;
+  _AttachedFile({required this.name, required this.bytes});
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CREATE TICKET PAGE - Multi-Step Ticket Creation Form
@@ -34,6 +51,12 @@ class _CreateTicketPageState extends State<CreateTicketPage> {
   String? _aiSolutions;
   String? _aiNextSteps;
   String? _aiEstimatedTime;
+
+  // Feature Added: File Attachments — list of files the user has selected.
+  // Uses _AttachedFile (name + bytes) instead of PlatformFile because we
+  // now pick files via the browser's native <input> element (package:web).
+  final List<_AttachedFile> _pickedFiles = [];
+  bool _isUploadingFiles = false;
 
   final List<String> _categories = [
     'Network Issues',
@@ -506,9 +529,20 @@ class _CreateTicketPageState extends State<CreateTicketPage> {
           ),
           const Divider(),
           ListTile(
+            leading: const Icon(Icons.person_outline),
+            title: const Text('Profile'),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.pushNamed(context, '/profile');
+            },
+          ),
+          ListTile(
             leading: const Icon(Icons.settings_outlined),
             title: const Text('Settings'),
-            onTap: () => Navigator.pop(context),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.pushNamed(context, '/settings');
+            },
           ),
           ListTile(
             leading: const Icon(Icons.logout_rounded, color: Color(0xFFEF4444)),
@@ -720,7 +754,7 @@ class _CreateTicketPageState extends State<CreateTicketPage> {
                     Text('Profile'),
                   ],
                 ),
-                onTap: () {},
+                onTap: () => Navigator.pushNamed(context, '/profile'),
               ),
               PopupMenuItem(
                 child: const Row(
@@ -730,7 +764,7 @@ class _CreateTicketPageState extends State<CreateTicketPage> {
                     Text('Settings'),
                   ],
                 ),
-                onTap: () {},
+                onTap: () => Navigator.pushNamed(context, '/settings'),
               ),
               const PopupMenuDivider(),
               PopupMenuItem(
@@ -1118,6 +1152,67 @@ class _CreateTicketPageState extends State<CreateTicketPage> {
                 return null;
               },
               onSaved: (value) => _description = value ?? '',
+            ),
+            const SizedBox(height: 24),
+
+            // ── Feature Added: File Attachments ──────────────────────────
+            // Users can attach screenshots or logs before submitting.
+            // Files are stored temporarily in _pickedFiles and uploaded to
+            // Firebase Storage when the ticket is finally submitted.
+            _buildLabel('Attachments (optional)', false),
+            const SizedBox(height: 8),
+            // List of already-picked files
+            if (_pickedFiles.isNotEmpty) ...[
+              ..._pickedFiles.map((f) => Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEFF6FF),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: const Color(0xFF0066FF).withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Row(children: [
+                        const Icon(Icons.insert_drive_file_outlined,
+                            size: 16, color: Color(0xFF0066FF)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            f.name,
+                            style: const TextStyle(
+                                fontSize: 13,
+                                color: Color(0xFF1A1A1A)),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        // Remove picked file
+                        GestureDetector(
+                          onTap: () =>
+                              setState(() => _pickedFiles.remove(f)),
+                          child: const Icon(Icons.close,
+                              size: 16, color: Color(0xFF64748B)),
+                        ),
+                      ]),
+                    ),
+                  )),
+              const SizedBox(height: 8),
+            ],
+            // Pick file button
+            OutlinedButton.icon(
+              onPressed: _openNativeFilePicker,
+              icon: const Icon(Icons.attach_file_rounded, size: 16),
+              label: const Text('Attach File'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF0066FF),
+                side: const BorderSide(color: Color(0xFF0066FF)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 12),
+              ),
             ),
             const SizedBox(height: 32),
 
@@ -1683,12 +1778,119 @@ class _CreateTicketPageState extends State<CreateTicketPage> {
   }
 
   // Submit Ticket to Firestore
+  // Feature Added: opens the browser's native file-selection dialog using a
+  // hidden <input type="file"> element via package:web.  This is more reliable
+  // on Flutter Web than FilePicker because it hooks into the browser's own
+  // file-input event chain — no async-context timing issues.
+  void _openNativeFilePicker() {
+    // Create a hidden file input element
+    final input = web.HTMLInputElement()
+      ..type = 'file'
+      ..multiple = true;
+
+    // Append to body so some browsers don't ignore the click
+    web.document.body!.append(input);
+
+    // Register the change listener BEFORE clicking
+    input.addEventListener(
+      'change',
+      (web.Event _) {
+        final files = input.files;
+        if (files != null) {
+          for (var i = 0; i < files.length; i++) {
+            final jsFile = files.item(i);
+            if (jsFile == null) continue;
+            final fileName = jsFile.name;
+
+            // Read file bytes via the FileReader API
+            final reader = web.FileReader();
+            reader.addEventListener(
+              'loadend',
+              (web.Event _) {
+                final result = reader.result;
+                if (result == null) return;
+                // After readAsArrayBuffer the result is a JSArrayBuffer
+                final bytes =
+                    (result as JSArrayBuffer).toDart.asUint8List();
+                if (mounted) {
+                  setState(() {
+                    _pickedFiles.add(
+                      _AttachedFile(name: fileName, bytes: bytes),
+                    );
+                  });
+                }
+              }.toJS,
+            );
+            reader.readAsArrayBuffer(jsFile);
+          }
+        }
+        // Clean up the temporary input element
+        input.remove();
+      }.toJS,
+    );
+
+    // Trigger the file dialog
+    input.click();
+  }
+
+  // Feature Added: maps a file extension to its MIME content-type string
+  // so Firebase Storage sets the correct Content-Type header on upload.
+  String _contentType(String filename) {
+    final ext = filename.split('.').last.toLowerCase();
+    switch (ext) {
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'png':
+        return 'image/png';
+      case 'gif':
+        return 'image/gif';
+      case 'pdf':
+        return 'application/pdf';
+      case 'doc':
+        return 'application/msword';
+      case 'docx':
+        return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      case 'txt':
+      case 'log':
+        return 'text/plain';
+      case 'zip':
+        return 'application/zip';
+      default:
+        return 'application/octet-stream';
+    }
+  }
+
   Future<void> _submitTicket() async {
     setState(() {
       _isSubmitting = true;
     });
 
     try {
+      // Feature Added: File Attachments — upload any picked files to Firebase
+      // Storage before writing the Firestore document so the ticket includes
+      // the download URLs from the start.
+      final List<Map<String, String>> attachments = [];
+      if (_pickedFiles.isNotEmpty) {
+        setState(() => _isUploadingFiles = true);
+        for (final file in _pickedFiles) {
+          try {
+            final ref = FirebaseStorage.instance
+                .ref('tickets/attachments/${DateTime.now().millisecondsSinceEpoch}_${file.name}');
+            final uploadTask = ref.putData(
+              file.bytes,
+              SettableMetadata(contentType: _contentType(file.name)),
+            );
+            final snap = await uploadTask;
+            final url = await snap.ref.getDownloadURL();
+            attachments.add({'name': file.name, 'url': url});
+          } catch (_) {
+            // Skip files that fail to upload — don't block ticket creation
+          }
+        }
+        setState(() => _isUploadingFiles = false);
+      }
+
       final ticketRef = await FirebaseFirestore.instance
           .collection('tickets')
           .add({
@@ -1704,6 +1906,8 @@ class _CreateTicketPageState extends State<CreateTicketPage> {
             'aiSolutions': _aiSolutions ?? '',
             'aiNextSteps': _aiNextSteps ?? '',
             'aiEstimatedTime': _aiEstimatedTime ?? '',
+            // Feature Added: attachments list (may be empty if none picked)
+            'attachments': attachments,
             'assignedTo': null,
             'assignedToName': null,
             'createdAt': FieldValue.serverTimestamp(),
