@@ -256,7 +256,7 @@ class _CreateTicketPageState extends State<CreateTicketPage> {
                     analysisData.toString();
                 print('✓ Extracted from analysis object');
               } else if (analysisData is List) {
-                solutions = (analysisData as List)
+                solutions = (analysisData)
                     .map((s) => s.toString())
                     .join('\n\n');
                 print('✓ Extracted from analysis list');

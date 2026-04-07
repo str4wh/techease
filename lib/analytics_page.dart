@@ -526,7 +526,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     return _buildChartCard(
       title: 'Ticket Volume — Last 6 Months',
       child: SizedBox(
-        height: 160,
+        height: 180,
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: monthlyMap.entries.map((entry) {
